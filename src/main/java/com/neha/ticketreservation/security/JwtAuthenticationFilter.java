@@ -40,26 +40,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String authHeader = request.getHeader("Authorization");
 
-        System.out.println("========== JWT FILTER ==========");
-        System.out.println("Request URI : " + request.getRequestURI());
-        System.out.println("Authorization Header : " + authHeader);
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            System.out.println("No Bearer Token Found");
             filterChain.doFilter(request, response);
             return;
         }
 
         String token = authHeader.substring(7);
 
-        System.out.println("TOKEN = " + token);
 
         String blacklisted =
                 redisLockService.getValue("blacklist:" + token);
 
         if (blacklisted != null) {
 
-            System.out.println("TOKEN IS BLACKLISTED");
 
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.getWriter().write("Token has been logged out.");
@@ -71,7 +65,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             String email = jwtUtil.extractEmail(token);
 
-            System.out.println("EMAIL = " + email);
 
             if (email != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -81,7 +74,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 if (jwtUtil.isTokenValid(token)) {
 
-                    System.out.println("TOKEN VALID");
 
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(
@@ -96,13 +88,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext()
                             .setAuthentication(authentication);
 
-                    System.out.println("AUTHENTICATION SET");
                 }
             }
 
         } catch (Exception e) {
 
-            System.out.println("JWT ERROR : " + e.getMessage());
             e.printStackTrace();
         }
 

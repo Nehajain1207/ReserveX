@@ -79,11 +79,10 @@ public class BookingExpiryScheduler {
                 unlockedSeats++;
             }
 
-            show.setAvailableSeats(
-                    show.getAvailableSeats() + unlockedSeats
+            showRepository.incrementAvailableSeats(
+                    show.getId(),
+                    unlockedSeats
             );
-
-            showRepository.save(show);
 
             bookingRepository.save(booking);
 

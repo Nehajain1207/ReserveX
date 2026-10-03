@@ -23,8 +23,6 @@ public class RedisLockService {
         Boolean success = redisTemplate.opsForValue()
                 .setIfAbsent(seatKey, "LOCKED", Duration.ofMinutes(5));
 
-        System.out.println("Redis Lock -> " + seatKey + " : " + success);
-
         return Boolean.TRUE.equals(success);
     }
 

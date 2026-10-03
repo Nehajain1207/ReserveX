@@ -34,7 +34,6 @@ public class BookingController {
     @GetMapping("/my-bookings")
     public List<BookingResponse> getMyBookings(
              Authentication authentication) {
-System.out.println(authentication.getName());
         return bookingService.getMyBookings(authentication.getName());
     }
 

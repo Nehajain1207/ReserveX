@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -63,47 +64,63 @@ public class BookingServiceImpl implements BookingService {
 
         bookingRepository.save(booking);
 
-        for (String seatNumber : request.getSeatNumbers()) {
+        // Redis locks taken by THIS request. If anything fails part-way, the database
+        // changes roll back with the transaction, but Redis is not part of that
+        // transaction, so these locks must be released by hand.
+        List<String> acquiredLocks = new ArrayList<>();
 
-            String redisKey = "seat:" + show.getId() + ":" + seatNumber;
+        try {
 
-            boolean locked = redisLockService.lockSeat(redisKey);
+            for (String seatNumber : request.getSeatNumbers()) {
 
-            if (!locked) {
-                throw new RuntimeException(
-                        "Seat " + seatNumber + " is currently being booked."
-                );
+                String redisKey = "seat:" + show.getId() + ":" + seatNumber;
+
+                boolean locked = redisLockService.lockSeat(redisKey);
+
+                if (!locked) {
+                    throw new RuntimeException(
+                            "Seat " + seatNumber + " is currently being booked."
+                    );
+                }
+
+                acquiredLocks.add(redisKey);
+
+                Seat seat = seatRepository
+                        .findByShowIdAndSeatNumber(show.getId(), seatNumber)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Seat not found : " + seatNumber));
+
+                if (seat.getStatus() != SeatStatus.AVAILABLE) {
+                    throw new RuntimeException(
+                            "Seat " + seatNumber + " is not available."
+                    );
+                }
+
+                seat.setStatus(SeatStatus.LOCKED);
+
+                seatRepository.save(seat);
+
+                BookingSeat bookingSeat = new BookingSeat();
+
+                bookingSeat.setBooking(booking);
+                bookingSeat.setSeat(seat);
+
+                bookingSeatRepository.save(bookingSeat);
             }
 
-            Seat seat = seatRepository
-                    .findByShowIdAndSeatNumber(show.getId(), seatNumber)
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException(
-                                    "Seat not found : " + seatNumber));
+        } catch (RuntimeException ex) {
 
-            if (seat.getStatus() != SeatStatus.AVAILABLE) {
-                throw new RuntimeException(
-                        "Seat " + seatNumber + " is not available."
-                );
-            }
+            // Only release the locks this request took, never another user's lock
+            acquiredLocks.forEach(redisLockService::unlockSeat);
 
-            seat.setStatus(SeatStatus.LOCKED);
-
-            seatRepository.save(seat);
-
-            BookingSeat bookingSeat = new BookingSeat();
-
-            bookingSeat.setBooking(booking);
-            bookingSeat.setSeat(seat);
-
-            bookingSeatRepository.save(bookingSeat);
+            throw ex;
         }
 
-        show.setAvailableSeats(
-                show.getAvailableSeats() - request.getSeatNumbers().size()
+        showRepository.decrementAvailableSeats(
+                show.getId(),
+                request.getSeatNumbers().size()
         );
-
-        showRepository.save(show);
 
         return new BookingResponse(
                 booking.getBookingReference(),
@@ -179,11 +196,10 @@ public class BookingServiceImpl implements BookingService {
 
         Show show = booking.getShow();
 
-        show.setAvailableSeats(
-                show.getAvailableSeats() + bookingSeats.size()
+        showRepository.incrementAvailableSeats(
+                show.getId(),
+                bookingSeats.size()
         );
-
-        showRepository.save(show);
 
         booking.setStatus(BookingStatus.CANCELLED);
 
